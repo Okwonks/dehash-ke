@@ -90,14 +90,12 @@ async function generateHashes() {
     for(let i=0; i<prefBits; i++) {
       const prefix = hexify(i);
       files[hashType][prefix] = new Map();
+      fs.writeFileSync(`${root}/${hashType}/${prefix}.json`, '{');
     }
   }
 
   log('Generating hashes...');
   for(const prefix of prefixes) {
-    const prefIdx = prefixes.indexOf(prefix);
-    const start = Date.now();
-
     for(const hashType of hashTypes) {
       for(let i=0; i<1_000_000; ++i) {
         const num = prefix + i.toString().padStart(6, '0');
@@ -108,29 +106,26 @@ async function generateHashes() {
         files[hashType][pref].set(rest, num);
       }
 
-      for(const pre in files[hashType]) {
-        const ws = fs.createWriteStream(`${root}/${hashType}/${pre}.json`, { flags:'a' });
-        const content = files[hashType][pre];
-        if(prefIdx === 0) {
-          ws.write('{');
-        }
+      for(const pref in files[hashType]) {
+        const ws = fs.createWriteStream(`${root}/${hashType}/${pref}.json`, { flags:'a' });
+        const content = [...files[hashType][pref].entries()]
+          .map(([k, v]) => {
+            files[hashType][pref].delete(k);
+            return `"${k}":"${v}",`;
+          })
+          .join('');
 
         await new Promise((resolve, reject) => {
-          for(const [k, v] of content.entries()) {
-            const chunk = `"${k}":"${v}",`
-            if(!ws.write(chunk)) {
-              ws.once('drain', () => ws.write(chunk));
-            }
-            files[hashType][pre].delete(k);
+          if(!ws.write(content)) {
+            ws.once('drain', () => ws.write(content));
           }
 
           ws.end();
           ws.on('finish', () => { resolve(); });
-          ws.on('error',  () => { reject(); });
+          ws.on('error', err => { reject(err); });
         });
       }
     }
-    log('prefix', prefIdx + 1, 'out of', prefixes.length, 'completed',  Date.now() - start, 'ms');
   }
   log('All hashes generated.');
 
@@ -145,7 +140,7 @@ async function generateHashes() {
       const formatted = data.slice(0, -1) + '}';
       fs.writeSync(fd, formatted);
 
-      fs.close(fd)
+      fs.close(fd);
     }
   }
 
